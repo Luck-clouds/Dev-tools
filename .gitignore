@@ -1,0 +1,72 @@
+# Dependencies and portable runtimes
+**/node_modules/
+node-v*-win-x64/
+node-v*-win-x64.zip
+node.exe
+
+# Generated frontend output and caches
+**/dist/
+**/.vite/
+**/.vite-temp/
+**/.cache/
+coverage/
+
+# SQLite databases and runtime sidecars
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+
+# Runtime data, uploaded/shared files, and generated logs
+Chat room server/data/
+File sharing server/uploads/
+File sharing server/log/
+logs/
+log/
+*.log
+*.log.*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local development documents
+**/Document/
+**/Documents/
+
+# Local certificates and private keys; keep certificate README files
+**/cert/*.pem
+**/cert/*.key
+**/cert/*.crt
+**/cert/*.cer
+**/cert/*.pfx
+**/cert/*.p12
+
+# Environment and machine-local configuration
+.env
+.env.*
+!.env.example
+*.local
+
+# Editors and operating-system files
+.idea/
+.vscode/
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.pid
+*.seed
+~$*

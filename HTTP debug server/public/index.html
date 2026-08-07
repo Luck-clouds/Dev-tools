@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HTTP 调试服务器</title>
+  <style>
+    body { max-width: 760px; margin: 64px auto; padding: 0 24px; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; color: #17324d; }
+    code { padding: 2px 6px; border-radius: 5px; background: #eef4ff; }
+    li { margin: 10px 0; }
+  </style>
+</head>
+<body>
+  <h1>HTTP 调试服务器已启动</h1>
+  <p>当前页面来自 <code>public/index.html</code>。</p>
+  <p>使用时，请将 Vue、React 等项目的 <code>dist</code> 内部文件复制到 <code>public</code> 目录。</p>
+  <ul>
+    <li><a href="/__debug/health">健康检查</a></li>
+    <li><a href="/__debug/echo?hello=world">Echo 调试接口</a></li>
+  </ul>
+</body>
+</html>
