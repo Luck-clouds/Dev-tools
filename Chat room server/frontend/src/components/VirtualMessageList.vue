@@ -8,8 +8,19 @@ import { buildMessageTimeline } from '../utils/messageTimeline'
 const props = defineProps({
   messages: { type: Array, default: () => [] },
   currentUserId: { type: String, default: '' },
+  mediaUrls: { type: Object, default: () => ({}) },
+  transferStates: { type: Object, default: () => ({}) },
+  profileEnabled: Boolean,
 })
-const emit = defineEmits(['preview-image', 'message-context'])
+const emit = defineEmits([
+  'preview-image',
+  'preview-video',
+  'message-context',
+  'media-request',
+  'download-file',
+  'retry-transfer',
+  'profile-user',
+])
 const scrollElement = ref(null)
 const timeline = computed(() => buildMessageTimeline(props.messages))
 
@@ -50,7 +61,7 @@ defineExpose({ scrollToEnd, scrollToMessage })
 
 <template>
   <div ref="scrollElement" class="message-list virtual-message-list">
-    <div v-if="timeline.length === 0" class="empty-chat"><div class="empty-icon">…</div><h3>这里还很安静</h3><p>发出第一条消息吧。</p></div>
+    <div v-if="timeline.length === 0" class="empty-chat"><h3>这里还很安静</h3><p>发出第一条消息吧。</p></div>
     <div v-else class="virtual-message-space" :style="{ height: `${virtualizer.getTotalSize()}px` }">
       <div
         v-for="virtualRow in virtualItems"
@@ -70,8 +81,16 @@ defineExpose({ scrollToEnd, scrollToMessage })
           v-else
           :message="timeline[virtualRow.index].message"
           :own="timeline[virtualRow.index].message.senderId === currentUserId"
+          :media-url="mediaUrls[timeline[virtualRow.index].message.payload.hash] || ''"
+          :transfer-state="transferStates[timeline[virtualRow.index].message.transferKey || timeline[virtualRow.index].message.payload.hash] || null"
+          :profile-enabled="profileEnabled"
           @preview-image="emit('preview-image', $event)"
+          @preview-video="emit('preview-video', $event)"
           @message-context="emit('message-context', $event)"
+          @media-request="emit('media-request', $event)"
+          @download-file="emit('download-file', $event)"
+          @retry-transfer="emit('retry-transfer', $event)"
+          @profile-user="emit('profile-user', $event)"
         />
       </div>
     </div>

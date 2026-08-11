@@ -5,6 +5,7 @@ const path = require('path');
 const { DatabaseSync } = require('node:sqlite');
 const { WebSocket, WebSocketServer } = require('ws');
 const config = require('./config');
+const { createAttachmentService } = require('./attachment-service');
 const { createConversationService } = require('./conversation-service');
 const { createIdentityService } = require('./identity-service');
 const { createImageStorage } = require('./image-storage');
@@ -16,6 +17,9 @@ const { createImageStorage } = require('./image-storage');
 const PUBLIC_DIR = path.resolve(config.publicDir);
 const DATABASE_FILE = path.resolve(config.databaseFile);
 const IMAGE_DIR = path.resolve(config.imageDir);
+const FILE_DIR = path.resolve(config.fileDir);
+const VIDEO_DIR = path.resolve(config.videoDir);
+const UPLOAD_DIR = path.resolve(config.uploadDir);
 const HOST = String(config.host);
 const PORT = Number(config.port);
 const DEFAULT_AVATAR = String(config.defaultAvatar);
@@ -24,6 +28,10 @@ const MAX_NAME_LENGTH = Number(config.maxNameLength);
 const MAX_TEXT_LENGTH = Number(config.maxTextLength);
 const MAX_AVATAR_BYTES = Number(config.maxAvatarBytes);
 const MAX_IMAGE_BYTES = Number(config.maxImageBytes);
+const UPLOAD_CHUNK_BYTES = Number(config.uploadChunkBytes);
+const MAX_FILE_BYTES = Number(config.maxFileBytes);
+const MAX_VIDEO_BYTES = Number(config.maxVideoBytes);
+const UPLOAD_TTL_MS = Number(config.uploadTtlMs);
 const MAX_WEBSOCKET_PAYLOAD = MAX_IMAGE_BYTES * 2;
 
 function log(level, message, fields = {}) {
@@ -77,6 +85,9 @@ function printServerInformation() {
   console.log(` Static files  : ${PUBLIC_DIR}`);
   console.log(` Database      : ${DATABASE_FILE}`);
   console.log(` Image storage : ${IMAGE_DIR}`);
+  console.log(` File storage  : ${FILE_DIR}`);
+  console.log(` Video storage : ${VIDEO_DIR}`);
+  console.log(` Upload temp   : ${UPLOAD_DIR}`);
   console.log('============================================================');
   console.log(' Runtime logs');
   console.log('============================================================');
@@ -104,6 +115,18 @@ if (!Number.isInteger(MAX_AVATAR_BYTES) || MAX_AVATAR_BYTES < 1) {
 
 if (!Number.isInteger(MAX_IMAGE_BYTES) || MAX_IMAGE_BYTES < 1) {
   throw new Error('config.maxImageBytes 必须是正整数');
+}
+
+if (!Number.isInteger(UPLOAD_CHUNK_BYTES) || UPLOAD_CHUNK_BYTES < 1024 * 1024 || UPLOAD_CHUNK_BYTES > 32 * 1024 * 1024) {
+  throw new Error('config.uploadChunkBytes 必须是 1 MiB 到 32 MiB 之间的整数');
+}
+
+if (!Number.isSafeInteger(MAX_FILE_BYTES) || MAX_FILE_BYTES < 1 || !Number.isSafeInteger(MAX_VIDEO_BYTES) || MAX_VIDEO_BYTES < 1) {
+  throw new Error('文件和视频大小限制必须是正安全整数');
+}
+
+if (!Number.isSafeInteger(UPLOAD_TTL_MS) || UPLOAD_TTL_MS < 60 * 1000) {
+  throw new Error('config.uploadTtlMs 不能小于一分钟');
 }
 
 /**
@@ -180,6 +203,19 @@ for (const row of database.prepare(`
 
 const conversationService = createConversationService(database, { historyLimit: HISTORY_LIMIT });
 for (const row of database.prepare('SELECT id FROM users').all()) conversationService.ensurePublicMember(row.id);
+const attachmentService = createAttachmentService(database, {
+  assertMember: conversationService.assertMember,
+  fileDirectory: FILE_DIR,
+  videoDirectory: VIDEO_DIR,
+  uploadDirectory: UPLOAD_DIR,
+  chunkSize: UPLOAD_CHUNK_BYTES,
+  maxFileBytes: MAX_FILE_BYTES,
+  maxVideoBytes: MAX_VIDEO_BYTES,
+  uploadTtlMs: UPLOAD_TTL_MS
+});
+// 定时移除过期上传分块与媒体票据，避免长期运行积累临时文件。
+const attachmentCleanupTimer = setInterval(() => attachmentService.cleanupExpired(), 30 * 60 * 1000);
+attachmentCleanupTimer.unref();
 database.exec(`
   UPDATE conversations SET last_message_id = (SELECT MAX(id) FROM messages WHERE conversation_id = 1)
   WHERE id = 1 AND last_message_id IS NULL
@@ -231,7 +267,7 @@ function createTimestampId() {
  * 服务端广播：
  *   { event: "message", data: { id, type, name, avatar, createdAt, payload } }
  *
- * 当前实现 text/image。以后只需增加新的验证分支即可扩展 file/audio/video 等类型。
+ * 当前实现 text/image/video/file，后续仍可通过验证分支扩展 audio 等类型。
  */
 function normalizeName(value) {
   const name = String(value || '').trim();
@@ -277,10 +313,14 @@ function createMessage(input, authenticatedUser) {
   conversationService.assertMember(conversationId, authenticatedUser.userId);
   const type = String(input.type || '').trim();
   const validatePayload = messageTypeHandlers[type];
-  if (!validatePayload) throw new Error(`暂不支持消息类型: ${type || '空'}`);
+  if (!validatePayload && type !== 'file' && type !== 'video') throw new Error(`暂不支持消息类型: ${type || '空'}`);
 
-  const validatedPayload = validatePayload(input.payload);
+  const attachment = type === 'file' || type === 'video'
+    ? attachmentService.validateMessageAttachment(authenticatedUser.userId, type, input.payload)
+    : null;
+  const validatedPayload = attachment ? attachment.payload : validatePayload(input.payload);
   const storedImage = type === 'image' ? validatedPayload : null;
+  const clientId = /^msg_[a-f0-9-]{12,80}$/i.test(String(input.clientId || '')) ? String(input.clientId) : '';
   const id = createTimestampId();
   const message = {
     id,
@@ -290,7 +330,8 @@ function createMessage(input, authenticatedUser) {
     name: authenticatedUser.name,
     avatar: authenticatedUser.avatar,
     createdAt: new Date(id).toISOString(),
-    payload: storedImage ? storedImage.payload : validatedPayload
+    payload: storedImage ? storedImage.payload : validatedPayload,
+    ...(clientId ? { clientId } : {})
   };
 
   database.exec('BEGIN IMMEDIATE');
@@ -316,6 +357,7 @@ function createMessage(input, authenticatedUser) {
       JSON.stringify(message.payload)
     );
     if (storedImage) insertMessageImageStatement.run(message.id, storedImage.hash);
+    if (attachment) attachmentService.linkMessage(message.id, attachment.row.hash);
     conversationService.updateLastMessage(message.conversationId, message.id);
     database.exec('COMMIT');
   } catch (error) {
@@ -411,6 +453,65 @@ function sendStaticFile(response, filePath, cacheControl = 'no-store') {
   stream.pipe(response);
 }
 
+/** 为文件名生成兼容 ASCII 与 UTF-8 的 Content-Disposition。 */
+function contentDisposition(fileName, inline = false) {
+  const fallback = String(fileName || 'download').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120) || 'download';
+  return `${inline ? 'inline' : 'attachment'}; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(fileName || 'download')}`;
+}
+
+/** 根据标准单段 Range 请求流式返回视频或文件。 */
+function sendAttachmentFile(request, response, attachment) {
+  const stat = fs.statSync(attachment.filePath);
+  const size = stat.size;
+  const range = String(request.headers.range || '');
+  let start = 0;
+  let end = size - 1;
+  let statusCode = 200;
+
+  if (range) {
+    const match = range.match(/^bytes=(\d*)-(\d*)$/);
+    if (!match || (!match[1] && !match[2])) {
+      response.writeHead(416, { 'Content-Range': `bytes */${size}` });
+      response.end();
+      return;
+    }
+    if (match[1]) {
+      start = Number(match[1]);
+      end = match[2] ? Number(match[2]) : end;
+    } else {
+      const suffixLength = Number(match[2]);
+      start = Math.max(0, size - suffixLength);
+    }
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start || start >= size) {
+      response.writeHead(416, { 'Content-Range': `bytes */${size}` });
+      response.end();
+      return;
+    }
+    end = Math.min(end, size - 1);
+    statusCode = 206;
+  }
+
+  const headers = {
+    'Accept-Ranges': 'bytes',
+    'Cache-Control': 'private, no-store',
+    'Content-Disposition': contentDisposition(attachment.payload.fileName, attachment.row.kind === 'video'),
+    'Content-Length': end - start + 1,
+    'Content-Type': attachment.row.mime_type || 'application/octet-stream',
+    'X-Content-Type-Options': 'nosniff',
+    ETag: `"sha256-${attachment.row.hash}"`,
+    'X-Content-SHA256': attachment.row.hash
+  };
+  if (statusCode === 206) headers['Content-Range'] = `bytes ${start}-${end}/${size}`;
+  response.writeHead(statusCode, headers);
+  const stream = fs.createReadStream(attachment.filePath, { start, end });
+  stream.on('error', (error) => {
+    logError('attachment stream failed', error, { hash: attachment.row.hash });
+    if (!response.headersSent) sendJson(response, 500, { ok: false, message: '附件读取失败' });
+    else response.destroy(error);
+  });
+  stream.pipe(response);
+}
+
 /**
  * 将 URL 路径安全地解析到 publicDir 内部。
  * 头像等静态资源可以使用 ./avatar.png 这样的相对地址，同时阻止 ../ 路径越界。
@@ -454,6 +555,25 @@ function readJsonBody(request) {
   });
 }
 
+/** 读取一个受大小限制的二进制上传分块。 */
+function readBinaryBody(request, maxBytes) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    request.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > maxBytes) {
+        reject(new Error('上传分块过大'));
+        request.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    request.on('end', () => resolve(Buffer.concat(chunks)));
+    request.on('error', reject);
+  });
+}
+
 function authenticateRequest(request) {
   const authorization = String(request.headers.authorization || '');
   const token = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
@@ -479,7 +599,10 @@ async function handleHttpRequest(request, response) {
         maxNameLength: MAX_NAME_LENGTH,
         maxTextLength: MAX_TEXT_LENGTH,
         maxAvatarBytes: MAX_AVATAR_BYTES,
-        maxImageBytes: MAX_IMAGE_BYTES
+        maxImageBytes: MAX_IMAGE_BYTES,
+        uploadChunkBytes: UPLOAD_CHUNK_BYTES,
+        maxFileBytes: MAX_FILE_BYTES,
+        maxVideoBytes: MAX_VIDEO_BYTES
       }
     });
     return;
@@ -557,6 +680,92 @@ async function handleHttpRequest(request, response) {
     const user = requireAuthenticatedUser(request, response);
     if (!user) return;
     sendJson(response, 200, { ok: true, data: conversationService.search(user.userId, requestUrl.searchParams.get('q')) });
+    return;
+  }
+
+  if (request.method === 'POST' && pathname === '/api/uploads') {
+    const user = requireAuthenticatedUser(request, response);
+    if (!user) return;
+    const body = await readJsonBody(request);
+    const state = attachmentService.createUpload(user.userId, body);
+    log('UPLOAD', state.completed ? 'attachment deduplicated' : 'upload created or resumed', {
+      userId: user.userId,
+      conversationId: body.conversationId,
+      kind: body.kind,
+      uploadId: state.uploadId,
+      size: body.size
+    });
+    sendJson(response, 200, { ok: true, data: state });
+    return;
+  }
+
+  const uploadStatusMatch = pathname.match(/^\/api\/uploads\/(upl_[a-f0-9]{32})$/);
+  if (request.method === 'GET' && uploadStatusMatch) {
+    const user = requireAuthenticatedUser(request, response);
+    if (!user) return;
+    sendJson(response, 200, { ok: true, data: attachmentService.getUpload(user.userId, uploadStatusMatch[1]) });
+    return;
+  }
+
+  if (request.method === 'DELETE' && uploadStatusMatch) {
+    const user = requireAuthenticatedUser(request, response);
+    if (!user) return;
+    const state = await attachmentService.cancelUpload(user.userId, uploadStatusMatch[1]);
+    log('UPLOAD', 'upload cancelled', { userId: user.userId, uploadId: uploadStatusMatch[1] });
+    sendJson(response, 200, { ok: true, data: state });
+    return;
+  }
+
+  const uploadPartMatch = pathname.match(/^\/api\/uploads\/(upl_[a-f0-9]{32})\/chunks\/(\d+)$/);
+  if (request.method === 'PUT' && uploadPartMatch) {
+    const user = requireAuthenticatedUser(request, response);
+    if (!user) return;
+    const chunk = await readBinaryBody(request, UPLOAD_CHUNK_BYTES);
+    const state = await attachmentService.writePart(
+      user.userId,
+      uploadPartMatch[1],
+      Number(uploadPartMatch[2]),
+      chunk,
+      request.headers['x-chunk-sha256'],
+      request.headers['content-range']
+    );
+    sendJson(response, 200, { ok: true, data: state });
+    return;
+  }
+
+  const uploadCompleteMatch = pathname.match(/^\/api\/uploads\/(upl_[a-f0-9]{32})\/complete$/);
+  if (request.method === 'POST' && uploadCompleteMatch) {
+    const user = requireAuthenticatedUser(request, response);
+    if (!user) return;
+    const attachment = await attachmentService.completeUpload(user.userId, uploadCompleteMatch[1]);
+    log('UPLOAD', 'upload completed', {
+      userId: user.userId,
+      uploadId: uploadCompleteMatch[1],
+      hash: attachment.hash,
+      size: attachment.size
+    });
+    sendJson(response, 200, { ok: true, data: attachment });
+    return;
+  }
+
+  const attachmentTicketMatch = pathname.match(/^\/api\/attachments\/([a-f0-9]{64})\/ticket$/);
+  if (request.method === 'POST' && attachmentTicketMatch) {
+    const user = requireAuthenticatedUser(request, response);
+    if (!user) return;
+    const body = await readJsonBody(request);
+    const ticket = attachmentService.createDownloadTicket(user.userId, attachmentTicketMatch[1], body.fileName);
+    sendJson(response, 200, { ok: true, data: ticket });
+    return;
+  }
+
+  const attachmentMediaMatch = pathname.match(/^\/media\/attachments\/([a-f0-9]{64})$/);
+  if (request.method === 'GET' && attachmentMediaMatch) {
+    const attachment = attachmentService.resolveDownload(attachmentMediaMatch[1], requestUrl.searchParams.get('ticket'));
+    if (!attachment) {
+      sendJson(response, 403, { ok: false, message: '附件访问票据无效或已过期' });
+      return;
+    }
+    sendAttachmentFile(request, response, attachment);
     return;
   }
 
@@ -672,7 +881,10 @@ webSocketServer.on('connection', (socket, request) => {
       maxNameLength: MAX_NAME_LENGTH,
       maxTextLength: MAX_TEXT_LENGTH,
       maxAvatarBytes: MAX_AVATAR_BYTES,
-      maxImageBytes: MAX_IMAGE_BYTES
+      maxImageBytes: MAX_IMAGE_BYTES,
+      uploadChunkBytes: UPLOAD_CHUNK_BYTES,
+      maxFileBytes: MAX_FILE_BYTES,
+      maxVideoBytes: MAX_VIDEO_BYTES
     }
   });
 
@@ -682,8 +894,9 @@ webSocketServer.on('connection', (socket, request) => {
       return;
     }
 
+    let packet;
     try {
-      const packet = JSON.parse(rawData.toString('utf8'));
+      packet = JSON.parse(rawData.toString('utf8'));
 
       const currentUser = identityService.authenticate(token);
       if (!currentUser) throw new Error('账号令牌已失效');
@@ -717,7 +930,10 @@ webSocketServer.on('connection', (socket, request) => {
       });
     } catch (error) {
       log('WARN', 'WebSocket command failed', { userId: socket.userId, error: error.message });
-      sendSocket(socket, 'error', { message: error.message });
+      sendSocket(socket, 'error', {
+        message: error.message,
+        clientId: String(packet?.data?.clientId || packet?.message?.clientId || '')
+      });
     }
   });
 
@@ -750,6 +966,7 @@ let shuttingDown = false;
 function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
+  clearInterval(attachmentCleanupTimer);
   log('INFO', 'server shutdown started');
   for (const client of webSocketServer.clients) client.close(1001, 'Server shutdown');
   webSocketServer.close();

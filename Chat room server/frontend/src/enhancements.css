@@ -309,3 +309,626 @@
     padding: 20px;
   }
 }
+
+/* 图片与视频直接展示媒体本身，不继承文字气泡的背景和内边距。 */
+.message-media {
+  position: relative;
+  width: fit-content;
+  max-width: min(420px, 58vw);
+  padding: 0;
+  overflow: hidden;
+  display: block;
+  border: 0;
+  border-radius: 12px;
+  color: #fff;
+  background: #dbeafe;
+  cursor: pointer;
+  box-shadow: 0 5px 16px rgb(15 23 42 / 10%);
+}
+
+.message-media img,
+.message-media video {
+  width: auto;
+  max-width: 100%;
+  max-height: 320px;
+  display: block;
+  object-fit: contain;
+}
+
+.message-media.video {
+  min-width: 220px;
+  min-height: 130px;
+  background: #0f172a;
+}
+
+.message-media.video video,
+.video-placeholder {
+  width: 100%;
+  min-height: 130px;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+}
+
+.video-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgb(15 23 42 / 66%);
+  transform: translate(-50%, -50%);
+}
+
+.message-media.video > time {
+  position: absolute;
+  right: 9px;
+  bottom: 8px;
+  padding: 3px 7px;
+  border-radius: 7px;
+  background: rgb(15 23 42 / 68%);
+  font-size: 11px;
+}
+
+.media-upload-progress {
+  position: absolute;
+  inset: auto 0 0;
+  height: 22px;
+  background: rgb(15 23 42 / 72%);
+}
+
+.media-upload-progress i {
+  position: absolute;
+  inset: auto 0 0;
+  height: 3px;
+  background: #06b6d4;
+}
+
+.media-upload-progress b {
+  position: relative;
+  display: block;
+  line-height: 19px;
+  font-size: 10px;
+  text-align: center;
+}
+
+.file-message-card {
+  width: min(340px, 66vw);
+  min-height: 76px;
+  padding: 11px;
+  display: grid;
+  grid-template-columns: minmax(66px, 27%) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid #dbeafe;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 5px 18px rgb(15 23 42 / 8%);
+  cursor: pointer;
+}
+
+.file-message-card:hover {
+  border-color: #06b6d4;
+}
+
+.file-message-card.pending {
+  cursor: default;
+  opacity: 0.86;
+}
+
+.file-message-icon {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  color: #0891b2;
+  background: #ecfeff;
+  justify-self: center;
+}
+
+.file-message-info {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.file-message-info > strong {
+  overflow: hidden;
+  display: -webkit-box;
+  color: #172033;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.file-message-info > div {
+  display: flex;
+  gap: 10px;
+  color: #84909f;
+  font-size: 10px;
+}
+
+.file-transfer-state {
+  justify-content: space-between;
+}
+
+.file-transfer-track {
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: #e2e8f0;
+}
+
+.file-transfer-track i {
+  display: block;
+  height: 100%;
+  background: #06b6d4;
+}
+
+.attachment-confirm-mask,
+.video-viewer-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 260;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(15 23 42 / 30%);
+}
+
+.attachment-confirm-card {
+  width: min(720px, 94vw);
+  max-height: min(720px, 88vh);
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 28px 80px rgb(15 23 42 / 25%);
+}
+
+.attachment-confirm-card > header,
+.attachment-confirm-card > footer {
+  padding: 18px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #edf2f7;
+}
+
+.attachment-confirm-card > footer {
+  justify-content: flex-end;
+  gap: 10px;
+  border-top: 1px solid #edf2f7;
+  border-bottom: 0;
+}
+
+.attachment-confirm-card header span {
+  color: #0891b2;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+}
+
+.attachment-confirm-card h2 {
+  margin: 3px 0 0;
+  font-size: 18px;
+}
+
+.attachment-confirm-card button {
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.attachment-confirm-list {
+  padding: 8px 20px;
+  overflow-y: auto;
+}
+
+.attachment-confirm-list article {
+  padding: 12px 0;
+  display: grid;
+  grid-template-columns: 66px minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 13px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.attachment-preview {
+  width: 66px;
+  height: 54px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  color: #0891b2;
+  background: #ecfeff;
+}
+
+.attachment-preview img,
+.attachment-preview video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.attachment-confirm-copy {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.attachment-confirm-copy strong {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-confirm-copy span,
+.attachment-confirm-copy small {
+  color: #84909f;
+  font-size: 10px;
+}
+
+.attachment-confirm-card footer button {
+  padding: 10px 16px;
+}
+
+.attachment-confirm-card footer .secondary {
+  color: #475569;
+  background: #f1f5f9;
+}
+
+.attachment-confirm-card footer .primary {
+  color: #fff;
+  background: #06b6d4;
+}
+
+.video-viewer {
+  position: relative;
+  width: min(1180px, 94vw);
+  height: min(720px, 88vh);
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(280px, 3fr);
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 28px 90px rgb(15 23 42 / 30%);
+}
+
+.video-player-stage {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  background: #05080f;
+}
+
+.video-player-stage video {
+  width: 100%;
+  max-height: 100%;
+}
+
+.video-information {
+  min-width: 0;
+  padding: 34px 26px;
+  overflow-y: auto;
+}
+
+.video-information h2 {
+  margin: 7px 0 22px;
+  overflow-wrap: anywhere;
+  font-size: 18px;
+}
+
+.video-sender {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.video-sender > div {
+  display: grid;
+  gap: 4px;
+}
+
+.video-sender span,
+.video-information dt {
+  color: #94a3b8;
+  font-size: 10px;
+}
+
+.video-information dl {
+  margin: 24px 0;
+  display: grid;
+  gap: 13px;
+}
+
+.video-information dl > div {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.video-information dd {
+  margin: 0;
+  color: #334155;
+  font-size: 11px;
+}
+
+.video-hash {
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.video-download {
+  width: 100%;
+  padding: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 10px;
+  color: #fff;
+  background: #06b6d4;
+  cursor: pointer;
+}
+
+.video-viewer-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  color: #475569;
+  background: rgb(255 255 255 / 90%);
+  cursor: pointer;
+}
+
+.attachment-confirm-fade-enter-active,
+.attachment-confirm-fade-leave-active,
+.video-viewer-fade-enter-active,
+.video-viewer-fade-leave-active {
+  transition: opacity 180ms ease;
+}
+
+.attachment-confirm-fade-enter-active .attachment-confirm-card,
+.attachment-confirm-fade-leave-active .attachment-confirm-card,
+.video-viewer-fade-enter-active .video-viewer,
+.video-viewer-fade-leave-active .video-viewer {
+  transition: transform 180ms ease;
+}
+
+.attachment-confirm-fade-enter-from,
+.attachment-confirm-fade-leave-to,
+.video-viewer-fade-enter-from,
+.video-viewer-fade-leave-to {
+  opacity: 0;
+}
+
+.attachment-confirm-fade-enter-from .attachment-confirm-card,
+.attachment-confirm-fade-leave-to .attachment-confirm-card,
+.video-viewer-fade-enter-from .video-viewer,
+.video-viewer-fade-leave-to .video-viewer {
+  transform: translateY(12px) scale(0.98);
+}
+
+@media (max-width: 700px) {
+  .message-media,
+  .file-message-card {
+    max-width: 72vw;
+  }
+
+  .video-viewer {
+    height: min(780px, 94vh);
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(240px, 1fr) auto;
+  }
+
+  .video-information {
+    max-height: 42vh;
+    padding: 20px;
+  }
+}
+
+.message-avatar-button {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: 40%;
+  background: transparent;
+}
+
+.message-avatar-button.clickable { cursor: pointer; }
+.message-avatar-button.clickable:hover { box-shadow: 0 0 0 3px rgb(6 182 212 / 20%); }
+
+.message-failed-retry {
+  width: 25px;
+  height: 30px;
+  flex: none;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  color: #ef4444;
+  background: transparent;
+  cursor: pointer;
+}
+
+.message-failed-retry:hover { color: #dc2626; transform: scale(1.08); }
+
+.message-sent-time {
+  margin: 4px 4px 0;
+  color: #94a3b8;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.notification-center {
+  position: fixed;
+  top: 22px;
+  right: 22px;
+  z-index: 400;
+  width: min(390px, calc(100vw - 32px));
+  display: grid;
+  gap: 9px;
+  pointer-events: none;
+}
+
+.global-notification {
+  padding: 13px;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) 26px;
+  align-items: start;
+  gap: 10px;
+  border: 1px solid #dbeafe;
+  border-left: 4px solid #06b6d4;
+  border-radius: 13px;
+  background: rgb(255 255 255 / 96%);
+  box-shadow: 0 14px 42px rgb(15 23 42 / 17%);
+  pointer-events: auto;
+}
+
+.global-notification.warning { border-left-color: #eab308; }
+.global-notification.error { border-left-color: #ef4444; }
+
+.notification-icon {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  color: #0891b2;
+  background: #ecfeff;
+}
+
+.warning .notification-icon { color: #a16207; background: #fefce8; }
+.error .notification-icon { color: #dc2626; background: #fef2f2; }
+.notification-copy { min-width: 0; }
+
+.notification-copy header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.notification-copy strong { font-size: 13px; }
+.notification-copy time,
+.notification-copy > span { color: #94a3b8; font-size: 9px; }
+
+.notification-copy p {
+  margin: 4px 0 3px;
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.global-notification > button {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  color: #94a3b8;
+  background: transparent;
+  cursor: pointer;
+}
+
+.global-notification-enter-active,
+.global-notification-leave-active { transition: opacity 180ms ease, transform 180ms ease; }
+.global-notification-enter-from,
+.global-notification-leave-to { opacity: 0; transform: translateX(16px); }
+
+.user-card-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 280;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgb(15 23 42 / 28%);
+}
+
+.user-profile-card {
+  position: relative;
+  width: min(340px, 100%);
+  padding: 30px 26px 24px;
+  display: grid;
+  justify-items: center;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 24px 72px rgb(15 23 42 / 24%);
+}
+
+.user-profile-card h2 { margin: 13px 0 18px; font-size: 19px; }
+
+.user-profile-card dl {
+  width: 100%;
+  margin: 0 0 20px;
+  display: grid;
+  gap: 10px;
+}
+
+.user-profile-card dl > div {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.user-profile-card dt { color: #94a3b8; font-size: 10px; }
+.user-profile-card dd { margin: 0; overflow-wrap: anywhere; color: #475569; font-size: 11px; }
+
+.user-card-chat {
+  width: 100%;
+  padding: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 10px;
+  color: #fff;
+  background: #06b6d4;
+  cursor: pointer;
+}
+
+.user-card-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 9px;
+  color: #64748b;
+  background: #f8fafc;
+  cursor: pointer;
+}
+
+.user-card-fade-enter-active,
+.user-card-fade-leave-active { transition: opacity 180ms ease; }
+.user-card-fade-enter-from,
+.user-card-fade-leave-to { opacity: 0; }
+
+@media (max-width: 700px) {
+  .notification-center { top: 16px; right: 16px; }
+}

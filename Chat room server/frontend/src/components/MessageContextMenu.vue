@@ -1,5 +1,5 @@
 <script setup>
-import { Copy, RotateCcw, X } from '@lucide/vue'
+import { Copy, RotateCcw } from '@lucide/vue'
 
 defineProps({
   open: Boolean,
@@ -16,7 +16,6 @@ const emit = defineEmits(['close', 'copy', 'revoke'])
       <div class="message-context-menu" :style="{ left: `${x}px`, top: `${y}px` }" @click.stop>
         <button type="button" @click="emit('copy')"><Copy :size="16" />复制消息</button>
         <button v-if="canRevoke" class="danger" type="button" @click="emit('revoke')"><RotateCcw :size="16" />撤回</button>
-        <button type="button" @click="emit('close')"><X :size="16" />取消</button>
       </div>
     </div>
   </Transition>

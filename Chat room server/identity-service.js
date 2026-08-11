@@ -61,7 +61,7 @@ function createIdentityService(database, { defaultAvatar, maxNameLength }) {
     ON CONFLICT(id) DO NOTHING
   `);
   const searchUsersStatement = database.prepare(`
-    SELECT u.id, u.name, u.avatar,
+    SELECT u.id, u.name, u.avatar, u.created_at,
       CASE WHEN r.status = 'friend' THEN 1 ELSE 0 END AS is_friend
     FROM users u
     LEFT JOIN user_relations r
@@ -148,6 +148,7 @@ function createIdentityService(database, { defaultAvatar, maxNameLength }) {
       userId: row.id,
       name: row.name,
       avatar: row.avatar,
+      createdAt: row.created_at,
       isFriend: Boolean(row.is_friend)
     }));
   }

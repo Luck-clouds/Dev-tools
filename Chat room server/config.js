@@ -28,8 +28,17 @@ module.exports = {
   // 单张图片最大字节数，当前为 2 MB。
   maxImageBytes: 2 * 1024 * 1024,
 
-  // 静态页面目录、SQLite 数据库和本地图片文件目录。
+  // 文件与视频使用 HTTP 分块上传，避免大体积内容进入 WebSocket。
+  uploadChunkBytes: 8 * 1024 * 1024,
+  maxFileBytes: 10 * 1024 * 1024 * 1024,
+  maxVideoBytes: 4 * 1024 * 1024 * 1024,
+  uploadTtlMs: 72 * 60 * 60 * 1000,
+
+  // 静态页面目录、SQLite 数据库和各类本地附件目录。
   publicDir: path.join(__dirname, 'frontend', 'dist'),
   databaseFile: path.join(__dirname, 'data', 'chat.db'),
-  imageDir: path.join(__dirname, 'data', 'images')
+  imageDir: path.join(__dirname, 'data', 'images'),
+  fileDir: path.join(__dirname, 'data', 'files'),
+  videoDir: path.join(__dirname, 'data', 'videos'),
+  uploadDir: path.join(__dirname, 'data', 'upload-temp')
 };

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const http = require('http');
 const https = require('https');
+const os = require('os');
 const path = require('path');
 const { URL } = require('url');
 
@@ -56,11 +57,52 @@ function ts() {
   return new Date().toISOString();
 }
 
-function log(title, payload) {
-  const line = `[${ts()}] ${title}`;
-  if (payload === undefined) console.log(line);
-  else console.log(line, payload);
-  console.log('------------------------------------------------------------');
+/** 输出与聊天室一致的单行结构化运行日志。 */
+function log(level, message, fields = {}) {
+  const details = Object.entries(fields)
+    .filter(([, value]) => value !== undefined && value !== null && value !== '')
+    .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
+    .join(' ');
+  console.log(`[${ts()}] [${level}] ${message}${details ? ` ${details}` : ''}`);
+}
+
+/** 收集当前电脑可用于局域网访问的 IPv4 地址。 */
+function networkAddresses() {
+  const addresses = [];
+  for (const [name, interfaces] of Object.entries(os.networkInterfaces())) {
+    for (const item of interfaces || []) {
+      if (item.family === 'IPv4' && !item.internal) addresses.push({ name, address: item.address });
+    }
+  }
+  return addresses;
+}
+
+/** 打印服务地址、代理配置和运行日志分隔区。 */
+function printServerInformation() {
+  const localHost = HOST === '0.0.0.0' ? '127.0.0.1' : HOST;
+  console.log('');
+  console.log('============================================================');
+  console.log(' HTTP Debug Server');
+  console.log('============================================================');
+  console.log(` Node.js       : ${process.version}`);
+  console.log(` Process ID    : ${process.pid}`);
+  console.log(` Listen        : ${HOST}:${PORT}`);
+  console.log(` Local URL     : ${PROTOCOL}://${localHost}:${PORT}`);
+  if (HOST === '0.0.0.0') {
+    for (const item of networkAddresses()) {
+      console.log(` LAN URL       : ${PROTOCOL}://${item.address}:${PORT} (${item.name})`);
+    }
+  }
+  console.log(` Static root   : ${ROOT}`);
+  console.log(` CORS          : ${ENABLE_CORS ? 'enabled' : 'disabled'}`);
+  console.log(` Proxy prefix  : ${PROXY_PREFIX}`);
+  console.log(` Proxy target  : ${PROXY_TARGET || 'disabled'}`);
+  if (ENABLE_HTTPS) console.log(` Certificate   : ${HTTPS_CERT_PATH}`);
+  console.log(` Health check  : ${PROTOCOL}://${localHost}:${PORT}/__debug/health`);
+  console.log(` Echo endpoint : ${PROTOCOL}://${localHost}:${PORT}/__debug/echo`);
+  console.log('============================================================');
+  console.log(' Runtime logs');
+  console.log('============================================================');
 }
 
 function sendJson(res, status, data) {
@@ -142,7 +184,6 @@ function scanRootFiles(rootDir) {
 function ensureRootReady() {
   if (!fs.existsSync(ROOT)) {
     fs.mkdirSync(ROOT, { recursive: true });
-    log('已创建静态目录', { root: ROOT });
   }
 
   const indexPath = path.join(ROOT, 'index.html');
@@ -252,7 +293,9 @@ async function handle(req, res) {
   const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '-';
   const body = await readBody(req);
 
-  log(`REQ ${req.method} ${pathname}`, {
+  log('HTTP', 'request', {
+    method: req.method,
+    path: pathname,
     ip,
     query,
     headers: req.headers,
@@ -265,7 +308,9 @@ async function handle(req, res) {
   res.writeHead = (statusCode, ...args) => {
     if (!responseLogged) {
       responseLogged = true;
-      log(`RES ${req.method} ${pathname}`, {
+      log('HTTP', 'response', {
+        method: req.method,
+        path: pathname,
         status: statusCode,
         elapsedMs: Date.now() - start
       });
@@ -347,7 +392,7 @@ function readHttpsOptions() {
 
 function requestListener(req, res) {
   handle(req, res).catch((error) => {
-    log('ERR unhandled', { message: error.message, stack: error.stack });
+    log('ERROR', 'request failed', { message: error.message, stack: error.stack });
     if (!res.headersSent) {
       sendJson(res, 500, { ok: false, error: 'Internal error', message: error.message });
     } else {
@@ -359,46 +404,50 @@ function requestListener(req, res) {
 ensureRootReady();
 const scanned = scanRootFiles(ROOT);
 
-log('静态目录扫描完成', {
-  root: ROOT,
-  fileCount: scanned.fileCount,
-  totalSize: scanned.humanSize
-});
-
-if (scanned.fileCount <= 1) {
-  log('提示', '请将前端 dist 内部文件复制到 public 目录，不要再嵌套一层 dist');
-} else {
-  log('静态文件样例', scanned.samples);
-}
-
 let server;
 try {
   server = ENABLE_HTTPS
     ? https.createServer(readHttpsOptions(), requestListener)
     : http.createServer(requestListener);
 } catch (error) {
-  log('ERR HTTPS config', { message: error.message });
+  log('ERROR', 'HTTPS configuration failed', { message: error.message });
   process.exit(1);
 }
 
 server.listen(PORT, HOST, () => {
-  const baseUrl = `${PROTOCOL}://${HOST}:${PORT}`;
-  log('调试服务器启动成功', {
-    url: baseUrl,
+  printServerInformation();
+  log('INFO', 'server ready', {
+    host: HOST,
+    port: PORT,
     protocol: PROTOCOL,
-    root: ROOT,
-    cors: ENABLE_CORS,
-    proxyPrefix: PROXY_PREFIX,
-    proxyTarget: PROXY_TARGET || null,
-    certificate: ENABLE_HTTPS ? HTTPS_CERT_PATH : null
+    staticFiles: scanned.fileCount,
+    staticBytes: scanned.totalBytes,
+    proxyTarget: PROXY_TARGET || null
   });
-  log('调试接口', {
-    health: `${baseUrl}/__debug/health`,
-    echo: `${baseUrl}/__debug/echo`
-  });
+  if (scanned.fileCount <= 1) {
+    log('WARN', 'static root contains no application files', { root: ROOT });
+  } else {
+    log('INFO', 'static root scanned', { samples: scanned.samples });
+  }
 });
 
 server.on('error', (error) => {
-  log('ERR startup', { code: error.code, message: error.message });
+  log('ERROR', 'server startup failed', { code: error.code, message: error.message });
   process.exit(1);
 });
+
+// 使用 Ctrl+C 关闭时等待监听器退出，保证 CMD 能收到正确退出码。
+let shuttingDown = false;
+function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  log('INFO', 'server shutdown started');
+  server.close(() => {
+    log('INFO', 'server shutdown complete');
+    process.exit(0);
+  });
+  server.closeAllConnections();
+}
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
