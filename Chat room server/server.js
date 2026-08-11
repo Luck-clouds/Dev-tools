@@ -1,5 +1,6 @@
 const fs = require('fs');
 const http = require('http');
+const os = require('os');
 const path = require('path');
 const { DatabaseSync } = require('node:sqlite');
 const { WebSocket, WebSocketServer } = require('ws');
@@ -24,6 +25,62 @@ const MAX_TEXT_LENGTH = Number(config.maxTextLength);
 const MAX_AVATAR_BYTES = Number(config.maxAvatarBytes);
 const MAX_IMAGE_BYTES = Number(config.maxImageBytes);
 const MAX_WEBSOCKET_PAYLOAD = MAX_IMAGE_BYTES * 2;
+
+function log(level, message, fields = {}) {
+  const details = Object.entries(fields)
+    .filter(([, value]) => value !== undefined && value !== null && value !== '')
+    .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
+    .join(' ');
+  console.log(`[${new Date().toISOString()}] [${level}] ${message}${details ? ` ${details}` : ''}`);
+}
+
+function clientAddress(request) {
+  const forwarded = String(request.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  return (forwarded || request.socket.remoteAddress || 'unknown').replace(/^::ffff:/, '');
+}
+
+function requestPath(request) {
+  try {
+    return new URL(request.url, 'http://localhost').pathname;
+  } catch {
+    return '/';
+  }
+}
+
+function networkAddresses() {
+  const addresses = [];
+  for (const [name, interfaces] of Object.entries(os.networkInterfaces())) {
+    for (const item of interfaces || []) {
+      if (item.family === 'IPv4' && !item.internal) addresses.push({ name, address: item.address });
+    }
+  }
+  return addresses;
+}
+
+function printServerInformation() {
+  const lanAddresses = networkAddresses();
+  console.log('');
+  console.log('============================================================');
+  console.log(' Chat Room Server');
+  console.log('============================================================');
+  console.log(` Node.js       : ${process.version}`);
+  console.log(` Process ID    : ${process.pid}`);
+  console.log(` Listen        : ${HOST}:${PORT}`);
+  console.log(` Local HTTP    : http://127.0.0.1:${PORT}`);
+  console.log(` Local WS      : ws://127.0.0.1:${PORT}/ws`);
+  if (HOST === '0.0.0.0') {
+    for (const item of lanAddresses) {
+      console.log(` LAN HTTP      : http://${item.address}:${PORT} (${item.name})`);
+      console.log(` LAN WS        : ws://${item.address}:${PORT}/ws (${item.name})`);
+    }
+  }
+  console.log(` Static files  : ${PUBLIC_DIR}`);
+  console.log(` Database      : ${DATABASE_FILE}`);
+  console.log(` Image storage : ${IMAGE_DIR}`);
+  console.log('============================================================');
+  console.log(' Runtime logs');
+  console.log('============================================================');
+}
 
 if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
   throw new Error(`config.port 不是有效端口: ${config.port}`);
@@ -548,8 +605,18 @@ async function handleHttpRequest(request, response) {
 }
 
 const httpServer = http.createServer((request, response) => {
+  const startedAt = Date.now();
+  response.once('finish', () => {
+    log('HTTP', 'request', {
+      method: request.method,
+      path: requestPath(request),
+      status: response.statusCode,
+      durationMs: Date.now() - startedAt,
+      ip: clientAddress(request)
+    });
+  });
   handleHttpRequest(request, response).catch((error) => {
-    console.error('[HTTP ERROR]', error);
+    log('ERROR', 'HTTP request failed', { method: request.method, path: requestPath(request), error: error.message });
     if (!response.headersSent) sendJson(response, 400, { ok: false, message: error.message || '服务器内部错误' });
     else response.destroy(error);
   });
@@ -588,6 +655,7 @@ webSocketServer.on('connection', (socket, request) => {
   const token = requestUrl.searchParams.get('token') || '';
   const authenticatedUser = identityService.authenticate(token);
   if (!authenticatedUser) {
+    log('WARN', 'WebSocket rejected', { ip: clientAddress(request), reason: 'unauthorized' });
     socket.close(4401, 'Unauthorized');
     return;
   }
@@ -595,6 +663,7 @@ webSocketServer.on('connection', (socket, request) => {
   socket.userId = authenticatedUser.userId;
   if (!userSockets.has(socket.userId)) userSockets.set(socket.userId, new Set());
   userSockets.get(socket.userId).add(socket);
+  log('WS', 'connected', { userId: socket.userId, ip: clientAddress(request) });
   sendSocket(socket, 'ready', {
     avatar: DEFAULT_AVATAR,
     user: authenticatedUser,
@@ -626,6 +695,11 @@ webSocketServer.on('connection', (socket, request) => {
           Number(packet.data?.messageId)
         );
         sendToUserIds(conversationService.memberIds(revokedMessage.conversationId), 'message.revoked', revokedMessage);
+        log('WS', 'message revoked', {
+          messageId: revokedMessage.id,
+          conversationId: revokedMessage.conversationId,
+          userId: currentUser.userId
+        });
         return;
       }
 
@@ -635,32 +709,39 @@ webSocketServer.on('connection', (socket, request) => {
       }
       const message = createMessage(packet.data || packet.message, currentUser);
       sendToUserIds(conversationService.memberIds(message.conversationId), 'message', message);
+      log('WS', 'message stored and delivered', {
+        messageId: message.id,
+        conversationId: message.conversationId,
+        type: message.type,
+        userId: currentUser.userId
+      });
     } catch (error) {
+      log('WARN', 'WebSocket command failed', { userId: socket.userId, error: error.message });
       sendSocket(socket, 'error', { message: error.message });
     }
   });
 
   socket.on('error', (error) => {
-    console.error('[WebSocket ERROR]', error.message);
+    log('ERROR', 'WebSocket error', { userId: socket.userId, error: error.message });
   });
 
   broadcast('presence', { online: webSocketServer.clients.size });
-  socket.on('close', () => {
+  socket.on('close', (code) => {
     const sockets = userSockets.get(socket.userId);
     sockets?.delete(socket);
     if (sockets?.size === 0) userSockets.delete(socket.userId);
     broadcast('presence', { online: webSocketServer.clients.size });
+    log('WS', 'disconnected', { userId: socket.userId, code, online: webSocketServer.clients.size });
   });
 });
 
 httpServer.listen(PORT, HOST, () => {
-  console.log(`Chat server: http://127.0.0.1:${PORT}`);
-  console.log(`WebSocket: ws://127.0.0.1:${PORT}/ws`);
-  if (HOST === '0.0.0.0') console.log(`LAN access: http://<local-ip>:${PORT}`);
+  printServerInformation();
+  log('INFO', 'server ready', { host: HOST, port: PORT });
 });
 
 httpServer.on('error', (error) => {
-  console.error('[STARTUP ERROR]', error.message);
+  log('ERROR', 'server startup failed', { code: error.code, error: error.message });
   process.exit(1);
 });
 
@@ -669,10 +750,12 @@ let shuttingDown = false;
 function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
+  log('INFO', 'server shutdown started');
   for (const client of webSocketServer.clients) client.close(1001, 'Server shutdown');
   webSocketServer.close();
   httpServer.close(() => {
     database.close();
+    log('INFO', 'server shutdown complete');
     process.exit(0);
   });
 

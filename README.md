@@ -19,7 +19,7 @@
 - 聊天室前端需要 pnpm；
 - 只有聊天室需要安装 npm/pnpm 依赖，另外两项服务只使用 Node.js 内置模块。
 
-便携 Node.js 体积较大，已被 `.gitignore` 排除，不会上传仓库。你可以安装系统 Node.js，也可以自行将 `node-v22.22.0-win-x64` 放在仓库根目录。三个启动脚本会优先使用 `DEBUG_NODE_EXE`，然后查找仓库中的便携 Node，最后使用系统 `PATH` 中的 `node`。
+你可以安装系统 Node.js，也可以自行将 (Node.js)[https://nodejs.org/zh-cn/download/archive/v22.22.0] 解压到项目根目录 放在仓库根目录。三个启动脚本会优先使用 `DEBUG_NODE_EXE`，然后查找仓库中的便携 Node，最后使用系统 `PATH` 中的 `node`。
 
 ## 快速开始
 
@@ -198,6 +198,7 @@ $env:DEBUG_SERVER_HTTPS_CERT = "C:\certificates\127.0.0.1.pem"
 - 按日期插入时间提醒，使用动态高度虚拟消息列表；
 - 浏览器新消息通知；
 - token 鉴权、单聊成员权限检查和 WebSocket 定向推送；
+- 启动时展示本机/局域网地址、静态目录和数据目录，运行时记录 HTTP、WebSocket、撤回与关闭日志；
 - 断线自动重连及桌面、移动端布局。
 
 ### 消息与存储模型
@@ -349,15 +350,11 @@ pnpm --dir ".\Chat room server\frontend" build
 
 ### 启动脚本提示找不到 Node
 
-安装 Node.js 22 并确保 `node` 在 `PATH` 中，或设置：
-
-```powershell
-$env:DEBUG_NODE_EXE = "Node 可执行文件的完整路径"
-```
+下载便携版 (Node.js)[https://nodejs.org/zh-cn/download/archive/v22.22.0] 解压到项目根目录
 
 ### 聊天室提示缺少依赖
 
-重新执行“快速开始”中的 npm 和 pnpm 安装命令。`node_modules` 不会上传 Git，这是正常现象。
+重新执行“快速开始”中的 npm 和 pnpm 安装命令。
 
 ### 局域网设备无法访问
 

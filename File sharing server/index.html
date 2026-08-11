@@ -24,7 +24,7 @@
 
     body {
       margin: 0;
-      min-height: 100vh;
+      max-height: 100vh;
       color: var(--text);
       font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
       background:
@@ -37,7 +37,7 @@
       margin: 0 auto;
       padding: 16px;
       display: grid;
-      gap: 12px;
+      /* gap: 12px; */
     }
 
     .top {
@@ -47,6 +47,7 @@
       box-shadow: var(--shadow);
       padding: 12px 14px;
       display: flex;
+      margin-bottom: 12px;
       justify-content: space-between;
       align-items: center;
       flex-wrap: wrap;
@@ -71,7 +72,7 @@
       display: grid;
       grid-template-columns: 360px 1fr;
       gap: 12px;
-      min-height: calc(100vh - 94px);
+      min-height: calc(100vh - 120px);
     }
 
     .panel {
@@ -247,7 +248,7 @@
   <div class="app">
     <header class="top">
       <div class="title">文件共享</div>
-      <div id="serverInfo" class="addr">连接中...</div>
+      <!-- <div id="serverInfo" class="addr">连接中...</div> -->
     </header>
 
     <section class="layout">
