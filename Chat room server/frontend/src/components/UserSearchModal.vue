@@ -52,7 +52,7 @@ watch(query, (value) => {
         <div v-else-if="users.length === 0" class="search-empty">没有找到对应账号。</div>
         <button v-for="user in users" v-else :key="user.userId" class="search-result user-search-result" type="button" @click="emit('invite', user)">
           <AvatarView :value="user.avatar" :name="user.name" :size="40" />
-          <span><strong>{{ user.name }}</strong><small>{{ user.userId }}</small></span>
+          <span class="search-result-copy"><strong>{{ user.name }}</strong><small>{{ user.userId }}</small></span>
           <span class="friend-state">{{ user.isFriend ? '好友' : '可邀请' }}</span><UserPlus :size="18" />
         </button>
       </div>

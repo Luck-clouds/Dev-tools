@@ -109,8 +109,12 @@ function preview(message) {
           type="button"
           @click="emit('select', message)"
         >
-          <AvatarView :value="message.avatar" :name="message.name" :size="40" />
-          <span
+          <AvatarView
+            :value="message.avatar"
+            :name="message.name"
+            :size="40"
+          />
+          <span class="search-result-copy"
             ><strong>{{ message.name }}</strong
             ><small>{{ preview(message) }}</small></span
           >

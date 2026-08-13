@@ -705,7 +705,7 @@ kbd {
 .search-result:hover {
   background: #f3f5f7;
 }
-.search-result > span {
+.search-result-copy {
   min-width: 0;
   flex: 1;
   display: grid;
