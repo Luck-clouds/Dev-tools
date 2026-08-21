@@ -13,6 +13,7 @@ import UserProfileCard from './components/UserProfileCard.vue'
 import VideoViewer from './components/VideoViewer.vue'
 import VirtualMessageList from './components/VirtualMessageList.vue'
 import { attachmentKind, hashFile, readVideoMetadata, requestAttachmentTicket, uploadAttachment } from './utils/attachmentTransfer'
+import { createClientMessageId } from './utils/clientMessageId'
 import { notifyWithPermission } from './utils/notification'
 import { showNotification } from './utils/notifications'
 import './enhancements.css'
@@ -136,7 +137,7 @@ function setStatus(text = '', error = false) {
 
 /** 创建带客户端标识的本地消息，供发送确认、失败展示和重新发送共用。 */
 function createPendingMessage(type, payload, extra = {}) {
-  const clientId = `msg_${crypto.randomUUID()}`
+  const clientId = createClientMessageId()
   const pending = {
     id: clientId,
     clientId,
@@ -369,7 +370,7 @@ function onPaste(event) {
 async function beginAttachmentUpload(file) {
   const kind = attachmentKind(file)
   const conversationId = activeConversationId.value
-  const transferKey = `msg_${crypto.randomUUID()}`
+  const transferKey = createClientMessageId()
   const metadata = kind === 'video' ? await readVideoMetadata(file) : {}
   const localUrl = kind === 'video' ? URL.createObjectURL(file) : ''
   const pending = {
