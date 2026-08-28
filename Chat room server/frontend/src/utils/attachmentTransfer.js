@@ -105,13 +105,69 @@ function percent(done, total) {
   return Math.max(0, Math.min(100, Math.round((done / Math.max(1, total)) * 100)))
 }
 
-/** 通过可恢复分块协议上传视频或文件并返回可信消息 payload。 */
-export async function uploadAttachment({ file, kind, conversationId, token, onProgress = () => {}, signal }) {
+/** 使用单个 HTTP 请求上传附件；服务端仍负责最终哈希和索引。 */
+function uploadSimpleAttachment({ file, kind, conversationId, token, videoMetadata, onProgress, signal }) {
+  return new Promise((resolve, reject) => {
+    const query = new URLSearchParams({
+      conversationId: String(conversationId),
+      kind,
+      fileName: file.name,
+      size: String(file.size),
+      durationMs: String(videoMetadata.durationMs || 0),
+      width: String(videoMetadata.width || 0),
+      height: String(videoMetadata.height || 0),
+    })
+    const request = new XMLHttpRequest()
+    const abort = () => request.abort()
+
+    if (signal?.aborted) {
+      reject(new DOMException('附件处理已取消', 'AbortError'))
+      return
+    }
+
+    request.open('POST', `/api/attachments/simple?${query}`)
+    request.setRequestHeader('Authorization', `Bearer ${token}`)
+    request.setRequestHeader('Content-Type', file.type || 'application/octet-stream')
+    request.upload.onprogress = (event) => {
+      const transferredBytes = event.lengthComputable ? event.loaded : 0
+      onProgress({
+        stage: 'uploading',
+        percent: event.lengthComputable ? percent(event.loaded, event.total) : 0,
+        transferredBytes,
+        totalBytes: file.size,
+      })
+    }
+    request.onerror = () => reject(new Error('附件上传失败'))
+    request.onabort = () => reject(new DOMException('附件处理已取消', 'AbortError'))
+    request.onload = () => {
+      const body = (() => {
+        try { return JSON.parse(request.responseText || '{}') } catch { return {} }
+      })()
+      if (request.status < 200 || request.status >= 300) {
+        reject(new Error(body.message || '附件上传失败'))
+        return
+      }
+      onProgress({ stage: 'completed', percent: 100, transferredBytes: file.size, totalBytes: file.size, hash: body.data?.hash })
+      resolve(body.data)
+    }
+    signal?.addEventListener('abort', abort, { once: true })
+    request.addEventListener('loadend', () => signal?.removeEventListener('abort', abort), { once: true })
+    onProgress({ stage: 'uploading', percent: 0, transferredBytes: 0, totalBytes: file.size })
+    request.send(file)
+  })
+}
+
+/** 根据服务端开关选择单请求或可恢复分块上传，并返回可信消息 payload。 */
+export async function uploadAttachment({ file, kind, conversationId, token, chunked = true, onProgress = () => {}, signal }) {
+  const videoMetadata = kind === 'video' ? await readVideoMetadata(file) : {}
+  if (!chunked) {
+    return uploadSimpleAttachment({ file, kind, conversationId, token, videoMetadata, onProgress, signal })
+  }
+
   onProgress({ stage: 'hashing', percent: 0, transferredBytes: 0, totalBytes: file.size })
   const fileHash = await hashFile(file, (done, total) => {
     onProgress({ stage: 'hashing', percent: percent(done, total), transferredBytes: done, totalBytes: total })
   }, signal)
-  const videoMetadata = kind === 'video' ? await readVideoMetadata(file) : {}
   const upload = await requestJson('/api/uploads', token, {
     method: 'POST',
     body: JSON.stringify({

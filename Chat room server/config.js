@@ -25,12 +25,15 @@ module.exports = {
   // 个人头像上传后会在浏览器压缩，服务端仍执行最终体积校验。
   maxAvatarBytes: 256 * 1024,
 
-  // 单张图片最大字节数，当前为 2 MB。
-  maxImageBytes: 2 * 1024 * 1024,
+  // 单张图片最大字节数。
+  maxImageBytes: 50 * 1024 * 1024,
 
-  // 文件与视频使用 HTTP 分块上传，避免大体积内容进入 WebSocket。
-  uploadChunkBytes: 8 * 1024 * 1024,
-  maxFileBytes: 10 * 1024 * 1024 * 1024,
+  // true：使用分块上传和断点下载；false：使用单请求上传和普通整文件下载。
+  enableChunkedFileTransfer: true,
+
+  // 分块模式下的单个分块大小。
+  uploadChunkBytes: 32 * 1024 * 1024,
+  maxFileBytes: 100 * 1024 * 1024 * 1024,
   maxVideoBytes: 4 * 1024 * 1024 * 1024,
   uploadTtlMs: 72 * 60 * 60 * 1000,
 

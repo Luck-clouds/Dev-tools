@@ -2,6 +2,8 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { once } = require('events');
+const { Transform } = require('stream');
+const { pipeline } = require('stream/promises');
 
 const HASH_PATTERN = /^[a-f0-9]{64}$/;
 const UPLOAD_ID_PATTERN = /^upl_[a-f0-9]{32}$/;
@@ -426,6 +428,94 @@ function createAttachmentService(database, options) {
     }
   }
 
+  /** 单请求接收文件，流式计算哈希并复用现有正式附件索引。 */
+  async function storeSimpleUpload(userId, input, readable) {
+    const conversationId = Number(input.conversationId);
+    assertMember(conversationId, userId);
+    const kind = input.kind === 'video' ? 'video' : 'file';
+    const fileName = normalizeFileName(input.fileName);
+    const mimeType = String(input.mimeType || 'application/octet-stream').slice(0, 120);
+    const totalSize = normalizeInteger(input.size, -1);
+    const maxBytes = kind === 'video' ? maxVideoBytes : maxFileBytes;
+    if (totalSize < 1 || totalSize > maxBytes) throw new Error(`${kind === 'video' ? '视频' : '文件'}大小超出限制`);
+    if (kind === 'video' && !VIDEO_MIME_TYPES.has(mimeType)) throw new Error('视频仅支持 MP4、WebM 或 Ogg');
+
+    const temporaryPath = path.join(tempRoot, `simple_${crypto.randomBytes(16).toString('hex')}.tmp`);
+    if (!isInside(tempRoot, temporaryPath)) throw new Error('临时文件路径无效');
+    const hasher = crypto.createHash('sha256');
+    let writtenBytes = 0;
+
+    try {
+      const validator = new Transform({
+        transform(chunk, encoding, callback) {
+          writtenBytes += chunk.length;
+          if (writtenBytes > totalSize || writtenBytes > maxBytes) {
+            callback(new Error('实际上传大小超出限制'));
+            return;
+          }
+          hasher.update(chunk);
+          callback(null, chunk);
+        }
+      });
+      await pipeline(readable, validator, fs.createWriteStream(temporaryPath, { flags: 'wx' }));
+      if (writtenBytes !== totalSize) throw new Error('实际上传大小与声明不一致');
+
+      const hash = hasher.digest('hex');
+      if (kind === 'video' && !hasValidVideoSignature(temporaryPath, mimeType)) {
+        throw new Error('视频文件头与声明格式不匹配');
+      }
+
+      const existing = findAttachment.get(hash);
+      if (existing) {
+        if (existing.kind !== kind) throw new Error('相同内容已以其他附件类型保存');
+        const existingPath = path.join(roots[existing.kind], existing.storage_name);
+        if (!isInside(roots[existing.kind], existingPath) || !fs.existsSync(existingPath)) {
+          throw new Error('附件索引存在但文件缺失');
+        }
+        await fs.promises.rm(temporaryPath, { force: true });
+        insertOwner.run(hash, userId, new Date().toISOString());
+        return publicAttachment(existing, fileName);
+      }
+
+      const extension = normalizeExtension(fileName);
+      const storageName = `${hash}${extension}`;
+      const finalPath = path.join(roots[kind], storageName);
+      if (!isInside(roots[kind], finalPath)) throw new Error('附件路径无效');
+      if (fs.existsSync(finalPath)) await fs.promises.rm(temporaryPath, { force: true });
+      else await fs.promises.rename(temporaryPath, finalPath);
+
+      const now = new Date().toISOString();
+      database.exec('BEGIN IMMEDIATE');
+      try {
+        insertAttachment.run(
+          hash,
+          storageName,
+          kind,
+          fileName,
+          extension,
+          mimeType,
+          totalSize,
+          normalizeInteger(input.durationMs, 0) || null,
+          normalizeInteger(input.width, 0) || null,
+          normalizeInteger(input.height, 0) || null,
+          userId,
+          now
+        );
+        insertOwner.run(hash, userId, now);
+        database.exec('COMMIT');
+      } catch (error) {
+        database.exec('ROLLBACK');
+        throw error;
+      }
+
+      const stored = findAttachment.get(hash);
+      return publicAttachment(stored, fileName);
+    } catch (error) {
+      await fs.promises.rm(temporaryPath, { force: true }).catch(() => {});
+      throw error;
+    }
+  }
+
   /** 取消当前用户的上传任务并清理临时分块。 */
   async function cancelUpload(userId, uploadId) {
     const row = findUpload.get(uploadId);
@@ -510,6 +600,7 @@ function createAttachmentService(database, options) {
     getUpload,
     linkMessage,
     resolveDownload,
+    storeSimpleUpload,
     validateMessageAttachment,
     writePart
   };

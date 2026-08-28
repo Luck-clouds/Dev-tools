@@ -43,6 +43,7 @@ const limits = reactive({
   maxTextLength: 20000,
   maxAvatarBytes: 256 * 1024,
   maxImageBytes: 2 * 1024 * 1024,
+  chunkedFileTransfer: true,
   uploadChunkBytes: 8 * 1024 * 1024,
   maxFileBytes: 10 * 1024 ** 3,
   maxVideoBytes: 4 * 1024 ** 3,
@@ -115,10 +116,14 @@ async function apiRequest(path, options = {}) {
 }
 
 async function initializeIdentity() {
-  const data = await apiRequest('/api/session', {
-    method: 'POST',
-    body: JSON.stringify(profile),
-  })
+  const [serverConfig, data] = await Promise.all([
+    apiRequest('/api/config'),
+    apiRequest('/api/session', {
+      method: 'POST',
+      body: JSON.stringify(profile),
+    }),
+  ])
+  Object.assign(limits, serverConfig)
   Object.assign(profile, data.user, { token: data.token })
   conversations.value = data.conversations || []
   persistIdentity()
@@ -410,6 +415,7 @@ async function runPendingUpload(pending) {
       kind: pending.type,
       conversationId: pending.conversationId,
       token: profile.token,
+      chunked: limits.chunkedFileTransfer,
       signal: controller.signal,
       onProgress: (state) => { transferStates[pending.transferKey] = { ...state, status: state.stage } },
     })
@@ -605,10 +611,10 @@ async function downloadWithFileHandle(message) {
   transferStates[payload.hash] = { status: 'completed', percent: 100, transferredBytes: payload.size, totalBytes: payload.size }
 }
 
-/** 根据浏览器能力选择带校验的断点下载或普通下载。 */
+/** 分块模式按浏览器能力断点下载；简单模式始终使用普通整文件下载。 */
 async function downloadAttachment(message) {
   try {
-    if (window.showSaveFilePicker && window.isSecureContext) await downloadWithFileHandle(message)
+    if (limits.chunkedFileTransfer && window.showSaveFilePicker && window.isSecureContext) await downloadWithFileHandle(message)
     else await downloadWithAnchor(message)
   } catch (error) {
     if (error?.name !== 'AbortError') {

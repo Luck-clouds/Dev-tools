@@ -32,6 +32,7 @@ const UPLOAD_CHUNK_BYTES = Number(config.uploadChunkBytes);
 const MAX_FILE_BYTES = Number(config.maxFileBytes);
 const MAX_VIDEO_BYTES = Number(config.maxVideoBytes);
 const UPLOAD_TTL_MS = Number(config.uploadTtlMs);
+const ENABLE_CHUNKED_FILE_TRANSFER = config.enableChunkedFileTransfer;
 const MAX_WEBSOCKET_PAYLOAD = MAX_IMAGE_BYTES * 2;
 
 function log(level, message, fields = {}) {
@@ -119,6 +120,10 @@ if (!Number.isInteger(MAX_IMAGE_BYTES) || MAX_IMAGE_BYTES < 1) {
 
 if (!Number.isInteger(UPLOAD_CHUNK_BYTES) || UPLOAD_CHUNK_BYTES < 1024 * 1024 || UPLOAD_CHUNK_BYTES > 32 * 1024 * 1024) {
   throw new Error('config.uploadChunkBytes 必须是 1 MiB 到 32 MiB 之间的整数');
+}
+
+if (typeof ENABLE_CHUNKED_FILE_TRANSFER !== 'boolean') {
+  throw new Error('config.enableChunkedFileTransfer 必须是布尔值');
 }
 
 if (!Number.isSafeInteger(MAX_FILE_BYTES) || MAX_FILE_BYTES < 1 || !Number.isSafeInteger(MAX_VIDEO_BYTES) || MAX_VIDEO_BYTES < 1) {
@@ -459,11 +464,11 @@ function contentDisposition(fileName, inline = false) {
   return `${inline ? 'inline' : 'attachment'}; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(fileName || 'download')}`;
 }
 
-/** 根据标准单段 Range 请求流式返回视频或文件。 */
-function sendAttachmentFile(request, response, attachment) {
+/** 根据配置使用标准单段 Range，或直接流式返回完整视频/文件。 */
+function sendAttachmentFile(request, response, attachment, rangeEnabled = true) {
   const stat = fs.statSync(attachment.filePath);
   const size = stat.size;
-  const range = String(request.headers.range || '');
+  const range = rangeEnabled ? String(request.headers.range || '') : '';
   let start = 0;
   let end = size - 1;
   let statusCode = 200;
@@ -492,7 +497,6 @@ function sendAttachmentFile(request, response, attachment) {
   }
 
   const headers = {
-    'Accept-Ranges': 'bytes',
     'Cache-Control': 'private, no-store',
     'Content-Disposition': contentDisposition(attachment.payload.fileName, attachment.row.kind === 'video'),
     'Content-Length': end - start + 1,
@@ -501,6 +505,7 @@ function sendAttachmentFile(request, response, attachment) {
     ETag: `"sha256-${attachment.row.hash}"`,
     'X-Content-SHA256': attachment.row.hash
   };
+  if (rangeEnabled) headers['Accept-Ranges'] = 'bytes';
   if (statusCode === 206) headers['Content-Range'] = `bytes ${start}-${end}/${size}`;
   response.writeHead(statusCode, headers);
   const stream = fs.createReadStream(attachment.filePath, { start, end });
@@ -600,6 +605,7 @@ async function handleHttpRequest(request, response) {
         maxTextLength: MAX_TEXT_LENGTH,
         maxAvatarBytes: MAX_AVATAR_BYTES,
         maxImageBytes: MAX_IMAGE_BYTES,
+        chunkedFileTransfer: ENABLE_CHUNKED_FILE_TRANSFER,
         uploadChunkBytes: UPLOAD_CHUNK_BYTES,
         maxFileBytes: MAX_FILE_BYTES,
         maxVideoBytes: MAX_VIDEO_BYTES
@@ -680,6 +686,39 @@ async function handleHttpRequest(request, response) {
     const user = requireAuthenticatedUser(request, response);
     if (!user) return;
     sendJson(response, 200, { ok: true, data: conversationService.search(user.userId, requestUrl.searchParams.get('q')) });
+    return;
+  }
+
+  if (!ENABLE_CHUNKED_FILE_TRANSFER && pathname.startsWith('/api/uploads')) {
+    sendJson(response, 409, { ok: false, message: '当前已关闭分块上传' });
+    return;
+  }
+
+  if (request.method === 'POST' && pathname === '/api/attachments/simple') {
+    if (ENABLE_CHUNKED_FILE_TRANSFER) {
+      sendJson(response, 409, { ok: false, message: '当前已启用分块上传' });
+      return;
+    }
+    const user = requireAuthenticatedUser(request, response);
+    if (!user) return;
+    const attachment = await attachmentService.storeSimpleUpload(user.userId, {
+      conversationId: requestUrl.searchParams.get('conversationId'),
+      kind: requestUrl.searchParams.get('kind'),
+      fileName: requestUrl.searchParams.get('fileName'),
+      mimeType: request.headers['content-type'],
+      size: requestUrl.searchParams.get('size'),
+      durationMs: requestUrl.searchParams.get('durationMs'),
+      width: requestUrl.searchParams.get('width'),
+      height: requestUrl.searchParams.get('height')
+    }, request);
+    log('UPLOAD', 'simple upload completed', {
+      userId: user.userId,
+      conversationId: requestUrl.searchParams.get('conversationId'),
+      kind: requestUrl.searchParams.get('kind'),
+      hash: attachment.hash,
+      size: attachment.size
+    });
+    sendJson(response, 200, { ok: true, data: attachment });
     return;
   }
 
@@ -765,7 +804,7 @@ async function handleHttpRequest(request, response) {
       sendJson(response, 403, { ok: false, message: '附件访问票据无效或已过期' });
       return;
     }
-    sendAttachmentFile(request, response, attachment);
+    sendAttachmentFile(request, response, attachment, ENABLE_CHUNKED_FILE_TRANSFER);
     return;
   }
 
@@ -882,6 +921,7 @@ webSocketServer.on('connection', (socket, request) => {
       maxTextLength: MAX_TEXT_LENGTH,
       maxAvatarBytes: MAX_AVATAR_BYTES,
       maxImageBytes: MAX_IMAGE_BYTES,
+      chunkedFileTransfer: ENABLE_CHUNKED_FILE_TRANSFER,
       uploadChunkBytes: UPLOAD_CHUNK_BYTES,
       maxFileBytes: MAX_FILE_BYTES,
       maxVideoBytes: MAX_VIDEO_BYTES
