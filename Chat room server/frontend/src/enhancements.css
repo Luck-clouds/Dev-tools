@@ -395,7 +395,7 @@
 }
 
 .file-message-card {
-  width: min(340px, 66vw);
+  width: min(290px, 64vw);
   min-height: 76px;
   padding: 11px;
   display: grid;
