@@ -7,6 +7,7 @@ const { WebSocket, WebSocketServer } = require('ws');
 const config = require('./config');
 const { createAttachmentService } = require('./attachment-service');
 const { createConversationService } = require('./conversation-service');
+const { createDeviceSnapshot } = require('./device-info');
 const { createIdentityService } = require('./identity-service');
 const { createImageStorage } = require('./image-storage');
 
@@ -624,6 +625,13 @@ async function handleHttpRequest(request, response) {
       name: normalizeName(body.name || '访客'),
       avatar
     });
+    // 设备信息是初始化的附属数据，写入异常不能阻断账号恢复或创建。
+    try {
+      const snapshot = createDeviceSnapshot(request.headers['user-agent'], body.device);
+      identityService.recordDevice(session.user.userId, snapshot);
+    } catch (error) {
+      log('WARN', 'device information was not saved', { userId: session.user.userId, error: error.message });
+    }
     conversationService.ensurePublicMember(session.user.userId);
     sendJson(response, 200, { ok: true, data: { ...session, conversations: conversationService.list(session.user.userId) } });
     return;

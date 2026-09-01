@@ -13,9 +13,25 @@ function createIdentityService(database, { defaultAvatar, maxNameLength }) {
       name TEXT NOT NULL,
       avatar TEXT NOT NULL,
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      device_type TEXT NOT NULL DEFAULT 'unknown',
+      device_info_json TEXT NOT NULL DEFAULT '{}',
+      device_history_json TEXT NOT NULL DEFAULT '[]',
+      device_updated_at TEXT
     )
   `);
+
+  // 兼容已有数据库：只补充缺失字段，不要求用户手动迁移或删除数据。
+  const userColumns = new Set(database.prepare('PRAGMA table_info(users)').all().map((column) => column.name));
+  const deviceColumns = {
+    device_type: "TEXT NOT NULL DEFAULT 'unknown'",
+    device_info_json: "TEXT NOT NULL DEFAULT '{}'",
+    device_history_json: "TEXT NOT NULL DEFAULT '[]'",
+    device_updated_at: 'TEXT'
+  };
+  for (const [name, definition] of Object.entries(deviceColumns)) {
+    if (!userColumns.has(name)) database.exec(`ALTER TABLE users ADD COLUMN ${name} ${definition}`);
+  }
   database.exec(`
     CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY,
@@ -55,6 +71,12 @@ function createIdentityService(database, { defaultAvatar, maxNameLength }) {
   `);
   const touchSession = database.prepare('UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?');
   const updateUser = database.prepare('UPDATE users SET name = ?, avatar = ?, updated_at = ? WHERE id = ?');
+  const findDeviceHistory = database.prepare('SELECT device_history_json FROM users WHERE id = ?');
+  const updateDevice = database.prepare(`
+    UPDATE users
+    SET device_type = ?, device_info_json = ?, device_history_json = ?, device_updated_at = ?
+    WHERE id = ?
+  `);
   const insertLegacyUser = database.prepare(`
     INSERT INTO users (id, name, avatar, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?)
@@ -134,6 +156,27 @@ function createIdentityService(database, { defaultAvatar, maxNameLength }) {
     return publicUser(findUser.get(userId));
   }
 
+  /** 保存最新设备信息，并将登录设备快照限制为最近三次。 */
+  function recordDevice(userId, snapshot) {
+    const row = findDeviceHistory.get(userId);
+    if (!row || !snapshot || typeof snapshot !== 'object') return;
+
+    let previous = [];
+    try {
+      const parsed = JSON.parse(row.device_history_json || '[]');
+      if (Array.isArray(parsed)) previous = parsed.filter((item) => item && typeof item === 'object');
+    } catch {}
+
+    const history = [snapshot, ...previous].slice(0, 3);
+    updateDevice.run(
+      snapshot.deviceType || 'unknown',
+      JSON.stringify(snapshot),
+      JSON.stringify(history),
+      snapshot.capturedAt || new Date().toISOString(),
+      userId
+    );
+  }
+
   function ensureLegacyUser({ id, name, avatar, createdAt }) {
     if (!USER_ID_PATTERN.test(String(id || ''))) return;
     const timestamp = createdAt || new Date().toISOString();
@@ -153,7 +196,7 @@ function createIdentityService(database, { defaultAvatar, maxNameLength }) {
     }));
   }
 
-  return { authenticate, ensureLegacyUser, initialize, searchUsers, updateProfile };
+  return { authenticate, ensureLegacyUser, initialize, recordDevice, searchUsers, updateProfile };
 }
 
 module.exports = { createIdentityService };

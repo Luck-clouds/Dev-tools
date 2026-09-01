@@ -14,8 +14,11 @@ import VideoViewer from './components/VideoViewer.vue'
 import VirtualMessageList from './components/VirtualMessageList.vue'
 import { attachmentKind, hashFile, readVideoMetadata, requestAttachmentTicket, uploadAttachment } from './utils/attachmentTransfer'
 import { createClientMessageId } from './utils/clientMessageId'
+import { collectDeviceInfo } from './utils/deviceInfo'
 import { notifyWithPermission } from './utils/notification'
 import { showNotification } from './utils/notifications'
+import { ConsoleImage } from "./utils/consoleImage";
+import image from "./assets/柴郡.png";
 import './enhancements.css'
 
 const IDENTITY_KEY = 'portable-chat-identity-v1'
@@ -120,7 +123,7 @@ async function initializeIdentity() {
     apiRequest('/api/config'),
     apiRequest('/api/session', {
       method: 'POST',
-      body: JSON.stringify(profile),
+      body: JSON.stringify({ ...profile, device: collectDeviceInfo() }),
     }),
   ])
   Object.assign(limits, serverConfig)
@@ -696,6 +699,7 @@ onMounted(async () => {
   try {
     await initializeIdentity()
     await loadConversation(activeConversationId.value)
+    ConsoleImage(image)
     connect()
     initialized.value = true
   } catch (error) { setStatus(error.message, true) }

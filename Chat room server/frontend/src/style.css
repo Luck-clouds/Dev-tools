@@ -724,7 +724,7 @@ kbd {
   color: #9aa2ab;
   font-size: 10px;
 }
-@media (max-width: 800px) {
+@media (max-width: 900px) {
   .app-shell {
     grid-template-columns: 54px minmax(0, 1fr);
   }
